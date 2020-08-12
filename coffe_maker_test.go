@@ -42,7 +42,9 @@ type TestCase struct {
 }
 
 func serveDrink(testCase TestCase, t *testing.T) {
-	actualMsg := testCase.coffeeMachine.Serve(testCase.drink)
+	msg := make(chan string)
+	go testCase.coffeeMachine.Serve(testCase.drink, msg)
+	actualMsg := <-msg
 	if !containsInArray(testCase.expectedMessages, actualMsg) {
 		t.Errorf("serving %s FAILED, \nexpected: '%s', \nactual: '%s'", testCase.drink, testCase.expectedMessages[0], actualMsg)
 	} else {

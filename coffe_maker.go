@@ -39,21 +39,20 @@ func (cm *CoffeeMachine) Init(beverages map[string]map[string]int, outlets map[s
 	return nil
 }
 
-// Serve the drink
-func (cm *CoffeeMachine) Serve(drink string) string {
+func (cm *CoffeeMachine) validateAndReserveDrinkIngredients(drink string) (string, error) {
 	ingredients, available := cm.beverages[drink]
 	if !available {
-		return fmt.Sprintf("%s is not available", drink)
+		return "", fmt.Errorf("%s is not available", drink)
 	}
 	cm.lock.Lock()
 	defer cm.lock.Unlock()
 	for item, amount := range ingredients {
 		totalAmount, available := cm.stock[item]
 		if !available {
-			return fmt.Sprintf("%s cannot be prepared because %s is not available", drink, item)
+			return "", fmt.Errorf("%s cannot be prepared because %s is not available", drink, item)
 		}
 		if totalAmount < amount {
-			return fmt.Sprintf("%s cannot be prepared because item %s is not sufficient", drink, item)
+			return "", fmt.Errorf("%s cannot be prepared because item %s is not sufficient", drink, item)
 		}
 	}
 	for item, amount := range ingredients {
@@ -61,15 +60,24 @@ func (cm *CoffeeMachine) Serve(drink string) string {
 		totalAmount = totalAmount - amount
 		cm.stock[item] = totalAmount
 	}
-	// Beverage preparation time
-	// Send machine instructions to dispatch drink
-	time.Sleep(time.Second * 1)
+	return fmt.Sprintf("%s is prepared", drink), nil
+}
 
-	return fmt.Sprintf("%s is prepared", drink)
+// Serve the drink
+func (cm *CoffeeMachine) Serve(drink string, displayMessage chan string) {
+	message, err := cm.validateAndReserveDrinkIngredients(drink)
+	if err != nil {
+		displayMessage <- err.Error()
+	}
+	// Beverage preparation time
+	time.Sleep(time.Second * 1)
+	displayMessage <- message
 }
 
 // Refill ingredients
 func (cm *CoffeeMachine) Refill(ingredient string, amount int) {
+	cm.lock.Lock()
+	defer cm.lock.Unlock()
 	existingAmount, ok := cm.stock[ingredient]
 	if !ok {
 		cm.stock[ingredient] = amount
