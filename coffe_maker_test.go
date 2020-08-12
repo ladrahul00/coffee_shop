@@ -6,8 +6,32 @@ import (
 	"testing"
 )
 
-// InitTest ...
-func InitTest(t *testing.T, fileName string) CoffeeMachine {
+type Machine struct {
+	Outlets    map[string]int            `json:"outlets"`
+	ItemsStock map[string]int            `json:"total_items_quantity"`
+	Beverages  map[string]map[string]int `json:"beverages"`
+}
+
+type MachineInput struct {
+	Machine Machine `json:"machine"`
+}
+
+type TestCase struct {
+	coffeeMachine    CoffeeMachine
+	drink            string
+	expectedMessages []string
+}
+
+func containsInArray(arr []string, searchString string) bool {
+	for _, str := range arr {
+		if str == searchString {
+			return true
+		}
+	}
+	return false
+}
+
+func initTest(t *testing.T, fileName string) CoffeeMachine {
 	coffeMachine := CoffeeMachine{}
 	dataBytes, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -24,32 +48,6 @@ func InitTest(t *testing.T, fileName string) CoffeeMachine {
 
 	t.Log("Coffee Machine Init Successfull")
 	return coffeMachine
-}
-
-func containsInArray(arr []string, searchString string) bool {
-	for _, str := range arr {
-		if str == searchString {
-			return true
-		}
-	}
-	return false
-}
-
-type TestCase struct {
-	coffeeMachine    CoffeeMachine
-	drink            string
-	expectedMessages []string
-}
-
-func serveDrink(testCase TestCase, t *testing.T) {
-	msg := make(chan string)
-	go testCase.coffeeMachine.Serve(testCase.drink, msg)
-	actualMsg := <-msg
-	if !containsInArray(testCase.expectedMessages, actualMsg) {
-		t.Errorf("serving %s FAILED, \nexpected: '%s', \nactual: '%s'", testCase.drink, testCase.expectedMessages[0], actualMsg)
-	} else {
-		t.Logf("serving %s PASSED, \nmessage: '%s'", testCase.drink, actualMsg)
-	}
 }
 
 func prepareTestCasesForInput1Sync(coffeMachine CoffeeMachine) []TestCase {
@@ -106,6 +104,7 @@ func prepareTestCasesForInput1ASync(coffeMachine CoffeeMachine) []TestCase {
 		coffeeMachine: coffeMachine,
 		drink:         "hot_coffee",
 		expectedMessages: []string{
+			// Adding all expected messages as this test case is going to to async
 			"hot_coffee is prepared",
 			"hot_coffee cannot be prepared because item hot_milk is not sufficient",
 		},
@@ -114,6 +113,7 @@ func prepareTestCasesForInput1ASync(coffeMachine CoffeeMachine) []TestCase {
 		coffeeMachine: coffeMachine,
 		drink:         "black_tea",
 		expectedMessages: []string{
+			// Adding all expected messages as this test case is going to to async
 			"black_tea cannot be prepared because item hot_water is not sufficient",
 			"black_tea cannot be prepared because item sugar_syrup is not sufficient",
 			"black_tea is prepared",
@@ -122,9 +122,36 @@ func prepareTestCasesForInput1ASync(coffeMachine CoffeeMachine) []TestCase {
 	return testCases
 }
 
+func refillStock(coffeMachine CoffeeMachine, ingredient string, amount int, t *testing.T) {
+	previousStock, ok := coffeMachine.stock[ingredient]
+	if !ok {
+		t.Errorf("%s not found", ingredient)
+	}
+	coffeMachine.Refill(ingredient, amount)
+	currentStock, ok := coffeMachine.stock[ingredient]
+	if !ok {
+		t.Errorf("%s not found", ingredient)
+	}
+	expectedAmount := previousStock + amount
+	if currentStock != expectedAmount {
+		t.Errorf("refill FAILED: current %s stock amount does not match expected stock amount", ingredient)
+	} else {
+		t.Logf("refill SUCCESS: %s stock refill successfull", ingredient)
+	}
+}
+
+func serveDrink(testCase TestCase, t *testing.T) {
+	actualMsg := testCase.coffeeMachine.ServeFromOutlet(testCase.drink)
+	if !containsInArray(testCase.expectedMessages, actualMsg) {
+		t.Errorf("serving %s FAILED, \nexpected: '%s', \nactual: '%s'", testCase.drink, testCase.expectedMessages[0], actualMsg)
+	} else {
+		t.Logf("serving %s PASSED, \nmessage: '%s'", testCase.drink, actualMsg)
+	}
+}
+
 // TestServeDrink ...
 func TestServeDrinkSync(t *testing.T) {
-	coffeMachine := InitTest(t, "input_data1.json")
+	coffeMachine := initTest(t, "input_data1.json")
 	testCases := prepareTestCasesForInput1Sync(coffeMachine)
 	for _, testCase := range testCases {
 		serveDrink(testCase, t)
@@ -133,27 +160,13 @@ func TestServeDrinkSync(t *testing.T) {
 
 // TestServeDrinkWithRefill ...
 func TestServeDrinkWithRefillSync(t *testing.T) {
-	coffeMachine := InitTest(t, "input_data1.json")
+	coffeMachine := initTest(t, "input_data1.json")
 	testCases := prepareTestCasesForInput1Sync(coffeMachine)
 	for _, testCase := range testCases {
 		serveDrink(testCase, t)
 	}
-	prevHotWaterStock, ok := coffeMachine.stock["hot_water"]
-	if !ok {
-		t.Error("hot_water not found")
-	}
-	coffeMachine.Refill("hot_water", 500)
-	currentHotWaterStock, ok := coffeMachine.stock["hot_water"]
-	if !ok {
-		t.Error("hot_water not found")
-	}
-	if currentHotWaterStock != (prevHotWaterStock + 500) {
-		t.Error("refill FAILED: current hot_water stock does not match expected stock")
-	} else {
-		t.Log("refill SUCCESS: hot_water stock refill successfull")
-		coffeMachine.Refill("sugar_syrup", 500)
-	}
-
+	refillStock(coffeMachine, "hot_water", 500, t)
+	refillStock(coffeMachine, "sugar_syrup", 500, t)
 	serveDrink(TestCase{
 		coffeeMachine:    coffeMachine,
 		drink:            "black_tea",
@@ -163,7 +176,7 @@ func TestServeDrinkWithRefillSync(t *testing.T) {
 
 // TestServeDrinkAsync ...
 func TestServeDrinkAsync(t *testing.T) {
-	coffeMachine := InitTest(t, "input_data1.json")
+	coffeMachine := initTest(t, "input_data1.json")
 
 	testCases := prepareTestCasesForInput1ASync(coffeMachine)
 	for _, testCase := range testCases {

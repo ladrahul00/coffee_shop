@@ -6,24 +6,12 @@ import (
 	"time"
 )
 
-// Machine type
-type Machine struct {
-	Outlets    map[string]int            `json:"outlets"`
-	ItemsStock map[string]int            `json:"total_items_quantity"`
-	Beverages  map[string]map[string]int `json:"beverages"`
-}
-
-// MachineInput type
-type MachineInput struct {
-	Machine Machine `json:"machine"`
-}
-
 // CoffeeMachine type
 type CoffeeMachine struct {
 	beverages map[string]map[string]int
-	outlets   int
-	stock     map[string]int
 	lock      *sync.Mutex
+	outlets   chan string
+	stock     map[string]int
 }
 
 // Init coffee machine
@@ -33,10 +21,46 @@ func (cm *CoffeeMachine) Init(beverages map[string]map[string]int, outlets map[s
 	if !ok {
 		return fmt.Errorf("invalid json")
 	}
-	cm.outlets = outletCount
+	// Creating bufferred channel for number of outlets
+	cm.outlets = make(chan string, outletCount)
 	cm.stock = stock
+	// Initiazling mutex lock to synchronize stock consumption and refill
 	cm.lock = &sync.Mutex{}
 	return nil
+}
+
+// Refill ingredients
+func (cm *CoffeeMachine) Refill(ingredient string, amount int) {
+	cm.lock.Lock()
+	defer cm.lock.Unlock()
+	// Synchronized block
+	existingAmount, ok := cm.stock[ingredient]
+	if !ok {
+		cm.stock[ingredient] = amount
+	} else {
+		cm.stock[ingredient] = existingAmount + amount
+	}
+}
+
+// ServeFromOutlet ...
+func (cm *CoffeeMachine) ServeFromOutlet(drink string) string {
+	go cm.serve(drink, cm.outlets)
+	return <-cm.outlets
+}
+
+// Serve the drink
+func (cm *CoffeeMachine) serve(drink string, displayMessage chan string) {
+	message, err := cm.validateAndReserveDrinkIngredients(drink)
+
+	// The Mutex Lock has been released as the ingredients are already reserved for the drink
+
+	if err != nil {
+		displayMessage <- err.Error()
+		return
+	}
+	// Beverage preparation time
+	time.Sleep(time.Second * 1)
+	displayMessage <- message
 }
 
 func (cm *CoffeeMachine) validateAndReserveDrinkIngredients(drink string) (string, error) {
@@ -46,6 +70,7 @@ func (cm *CoffeeMachine) validateAndReserveDrinkIngredients(drink string) (strin
 	}
 	cm.lock.Lock()
 	defer cm.lock.Unlock()
+	// Synchronized block
 	for item, amount := range ingredients {
 		totalAmount, available := cm.stock[item]
 		if !available {
@@ -61,27 +86,4 @@ func (cm *CoffeeMachine) validateAndReserveDrinkIngredients(drink string) (strin
 		cm.stock[item] = totalAmount
 	}
 	return fmt.Sprintf("%s is prepared", drink), nil
-}
-
-// Serve the drink
-func (cm *CoffeeMachine) Serve(drink string, displayMessage chan string) {
-	message, err := cm.validateAndReserveDrinkIngredients(drink)
-	if err != nil {
-		displayMessage <- err.Error()
-	}
-	// Beverage preparation time
-	time.Sleep(time.Second * 1)
-	displayMessage <- message
-}
-
-// Refill ingredients
-func (cm *CoffeeMachine) Refill(ingredient string, amount int) {
-	cm.lock.Lock()
-	defer cm.lock.Unlock()
-	existingAmount, ok := cm.stock[ingredient]
-	if !ok {
-		cm.stock[ingredient] = amount
-	} else {
-		cm.stock[ingredient] = existingAmount + amount
-	}
 }
